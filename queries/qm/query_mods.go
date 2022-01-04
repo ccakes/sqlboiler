@@ -194,18 +194,20 @@ func Distinct(clause string) QueryMod {
 }
 
 type withQueryMod struct {
+	alias  string
 	clause string
 	args   []interface{}
 }
 
 // Apply implements QueryMod.Apply.
 func (qm withQueryMod) Apply(q *queries.Query) {
-	queries.AppendWith(q, qm.clause, qm.args...)
+	queries.AppendWith(q, qm.alias, qm.clause, qm.args...)
 }
 
 // With allows you to pass in a Common Table Expression clause (and args)
-func With(clause string, args ...interface{}) QueryMod {
+func With(alias, clause string, args ...interface{}) QueryMod {
 	return withQueryMod{
+		alias:  alias,
 		clause: clause,
 		args:   args,
 	}
