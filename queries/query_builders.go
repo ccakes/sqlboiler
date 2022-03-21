@@ -41,11 +41,11 @@ func buildQuery(q *Query, finalize bool) (string, []interface{}) {
 	case len(q.rawSQL.sql) != 0:
 		return q.rawSQL.sql, q.rawSQL.args
 	case q.delete:
-		buf, args = buildDeleteQuery(q, finalize)
+		buf, args = buildDeleteQuery(q)
 	case len(q.update) > 0:
-		buf, args = buildUpdateQuery(q, finalize)
+		buf, args = buildUpdateQuery(q)
 	default:
-		buf, args = buildSelectQuery(q, finalize)
+		buf, args = buildSelectQuery(q)
 	}
 
 	if finalize {
@@ -62,12 +62,12 @@ func buildQuery(q *Query, finalize bool) (string, []interface{}) {
 	return bufStr, args
 }
 
-func buildSelectQuery(q *Query, finalize bool) (*bytes.Buffer, []interface{}) {
+func buildSelectQuery(q *Query) (*bytes.Buffer, []interface{}) {
 	buf := strmangle.GetBuffer()
 	var args []interface{}
 
 	writeComment(q, buf)
-	writeCTEs(q, finalize, buf, &args)
+	writeCTEs(q, buf, &args)
 
 	buf.WriteString("SELECT ")
 
@@ -133,7 +133,7 @@ func buildSelectQuery(q *Query, finalize bool) (*bytes.Buffer, []interface{}) {
 			args = append(args, j.args...)
 		}
 		var resp string
-		if q.dialect.UseIndexPlaceholders && finalize {
+		if q.dialect.UseIndexPlaceholders {
 			resp, _ = convertQuestionMarks(joinBuf.String(), argsLen+1)
 		} else {
 			resp = joinBuf.String()
@@ -142,44 +142,44 @@ func buildSelectQuery(q *Query, finalize bool) (*bytes.Buffer, []interface{}) {
 		strmangle.PutBuffer(joinBuf)
 	}
 
-	where, whereArgs := whereClause(q, finalize, len(args)+1)
+	where, whereArgs := whereClause(q, len(args)+1)
 	buf.WriteString(where)
 	if len(whereArgs) != 0 {
 		args = append(args, whereArgs...)
 	}
 
-	writeModifiers(q, finalize, buf, &args)
+	writeModifiers(q, buf, &args)
 
 	return buf, args
 }
 
-func buildDeleteQuery(q *Query, finalize bool) (*bytes.Buffer, []interface{}) {
+func buildDeleteQuery(q *Query) (*bytes.Buffer, []interface{}) {
 	var args []interface{}
 	buf := strmangle.GetBuffer()
 
 	writeComment(q, buf)
-	writeCTEs(q, finalize, buf, &args)
+	writeCTEs(q, buf, &args)
 
 	buf.WriteString("DELETE FROM ")
 	buf.WriteString(strings.Join(strmangle.IdentQuoteSlice(q.dialect.LQ, q.dialect.RQ, q.from), ", "))
 
-	where, whereArgs := whereClause(q, finalize, 1)
+	where, whereArgs := whereClause(q, 1)
 	if len(whereArgs) != 0 {
 		args = append(args, whereArgs...)
 	}
 	buf.WriteString(where)
 
-	writeModifiers(q, finalize, buf, &args)
+	writeModifiers(q, buf, &args)
 
 	return buf, args
 }
 
-func buildUpdateQuery(q *Query, finalize bool) (*bytes.Buffer, []interface{}) {
+func buildUpdateQuery(q *Query) (*bytes.Buffer, []interface{}) {
 	buf := strmangle.GetBuffer()
 	var args []interface{}
 
 	writeComment(q, buf)
-	writeCTEs(q, finalize, buf, &args)
+	writeCTEs(q, buf, &args)
 
 	buf.WriteString("UPDATE ")
 	buf.WriteString(strings.Join(strmangle.IdentQuoteSlice(q.dialect.LQ, q.dialect.RQ, q.from), ", "))
@@ -205,13 +205,13 @@ func buildUpdateQuery(q *Query, finalize bool) (*bytes.Buffer, []interface{}) {
 	}
 	fmt.Fprintf(buf, " SET %s", strings.Join(setSlice, ", "))
 
-	where, whereArgs := whereClause(q, finalize, len(args)+1)
+	where, whereArgs := whereClause(q, len(args)+1)
 	if len(whereArgs) != 0 {
 		args = append(args, whereArgs...)
 	}
 	buf.WriteString(where)
 
-	writeModifiers(q, finalize, buf, &args)
+	writeModifiers(q, buf, &args)
 
 	return buf, args
 }
@@ -228,7 +228,7 @@ func collectSelectCols(q *Query, args *[]interface{}) []string {
 	return allSelect
 }
 
-func writeParameterizedModifiers(q *Query, finalize bool, buf *bytes.Buffer, args *[]interface{}, keyword, delim string, clauses []argClause) {
+func writeParameterizedModifiers(q *Query, buf *bytes.Buffer, args *[]interface{}, keyword, delim string, clauses []argClause) {
 	argsLen := len(*args)
 	modBuf := strmangle.GetBuffer()
 	fmt.Fprintf(modBuf, keyword)
@@ -242,7 +242,7 @@ func writeParameterizedModifiers(q *Query, finalize bool, buf *bytes.Buffer, arg
 	}
 
 	var resp string
-	if q.dialect.UseIndexPlaceholders && finalize {
+	if q.dialect.UseIndexPlaceholders {
 		resp, _ = convertQuestionMarks(modBuf.String(), argsLen+1)
 	} else {
 		resp = modBuf.String()
@@ -252,17 +252,17 @@ func writeParameterizedModifiers(q *Query, finalize bool, buf *bytes.Buffer, arg
 	strmangle.PutBuffer(modBuf)
 }
 
-func writeModifiers(q *Query, finalize bool, buf *bytes.Buffer, args *[]interface{}) {
+func writeModifiers(q *Query, buf *bytes.Buffer, args *[]interface{}) {
 	if len(q.groupBy) != 0 {
 		fmt.Fprintf(buf, " GROUP BY %s", strings.Join(q.groupBy, ", "))
 	}
 
 	if len(q.having) != 0 {
-		writeParameterizedModifiers(q, finalize, buf, args, " HAVING ", " AND ", q.having)
+		writeParameterizedModifiers(q, buf, args, " HAVING ", " AND ", q.having)
 	}
 
 	if len(q.orderBy) != 0 {
-		writeParameterizedModifiers(q, finalize, buf, args, " ORDER BY ", ", ", q.orderBy)
+		writeParameterizedModifiers(q, buf, args, " ORDER BY ", ", ", q.orderBy)
 	}
 
 	if !q.dialect.UseTopClause {
@@ -367,7 +367,7 @@ func writeAsStatements(q *Query, args *[]interface{}) []string {
 // WHERE (a=$1) AND (b=$2) AND (a,b) in (($3, $4), ($5, $6))
 //
 // startAt specifies what number placeholders start at
-func whereClause(q *Query, finalize bool, startAt int) (string, []interface{}) {
+func whereClause(q *Query, startAt int) (string, []interface{}) {
 	if len(q.where) == 0 {
 		return "", nil
 	}
@@ -404,7 +404,7 @@ ManualParen:
 			if !manualParens {
 				buf.WriteByte('(')
 			}
-			if q.dialect.UseIndexPlaceholders && finalize {
+			if q.dialect.UseIndexPlaceholders {
 				replaced, n := convertQuestionMarks(where.clause, startAt)
 				buf.WriteString(replaced)
 				startAt += n
@@ -473,7 +473,7 @@ ManualParen:
 
 			var leftClause string
 			var leftCount int
-			if q.dialect.UseIndexPlaceholders && finalize {
+			if q.dialect.UseIndexPlaceholders {
 				leftClause, leftCount = convertQuestionMarks(strings.Join(cols, ","), startAt)
 			} else {
 				// Count the number of cols that are question marks, so we know
@@ -635,7 +635,7 @@ func writeComment(q *Query, buf *bytes.Buffer) {
 	}
 }
 
-func writeCTEs(q *Query, finalize bool, buf *bytes.Buffer, args *[]interface{}) {
+func writeCTEs(q *Query, buf *bytes.Buffer, args *[]interface{}) {
 	if len(q.withs) == 0 {
 		return
 	}
@@ -657,7 +657,7 @@ func writeCTEs(q *Query, finalize bool, buf *bytes.Buffer, args *[]interface{}) 
 	}
 	withBuf.WriteByte(' ')
 	var resp string
-	if q.dialect.UseIndexPlaceholders && finalize {
+	if q.dialect.UseIndexPlaceholders {
 		resp, _ = convertQuestionMarks(withBuf.String(), argsLen+1)
 	} else {
 		resp = withBuf.String()
