@@ -30,22 +30,23 @@ type Query struct {
 	load     []string
 	loadMods map[string]Applicator
 
-	delete     bool
-	update     map[string]interface{}
-	withs      []with
-	selectCols []string
-	count      bool
-	from       []string
-	joins      []join
-	where      []where
-	groupBy    []string
-	orderBy    []argClause
-	having     []argClause
-	limit      *int
-	offset     int
-	forlock    string
-	distinct   string
-	comment    string
+	delete           bool
+	update           map[string]interface{}
+	withs            []with
+	selectCols       []string
+	selectSubqueries []subquerySelect
+	count            bool
+	from             []string
+	joins            []join
+	where            []where
+	groupBy          []string
+	orderBy          []argClause
+	having           []argClause
+	limit            *int
+	offset           int
+	forlock          string
+	distinct         string
+	comment          string
 
 	// This field is a hack to allow a query to strip out the reference
 	// to deleted at is null.
@@ -92,6 +93,11 @@ type with struct {
 	alias  string
 	clause string
 	args   []interface{}
+}
+
+type subquerySelect struct {
+	alias string
+	query *Query
 }
 
 type rawSQL struct {
@@ -295,6 +301,10 @@ func SetUpdate(q *Query, cols map[string]interface{}) {
 // AppendSelect on the query.
 func AppendSelect(q *Query, columns ...string) {
 	q.selectCols = append(q.selectCols, columns...)
+}
+
+func AppendSubquerySelect(q *Query, alias string, subquery *Query) {
+	q.selectSubqueries = append(q.selectSubqueries, subquerySelect{alias, subquery})
 }
 
 // AppendFrom on the query.

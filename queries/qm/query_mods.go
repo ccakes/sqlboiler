@@ -239,6 +239,22 @@ func Select(columns ...string) QueryMod {
 	}
 }
 
+type subquerySelectMod struct {
+	alias    string
+	subquery *queries.Query
+}
+
+func (qm subquerySelectMod) Apply(q *queries.Query) {
+	queries.AppendSubquerySelect(q, qm.alias, qm.subquery)
+}
+
+func SubquerySelect(alias string, subquery *queries.Query) QueryMod {
+	return subquerySelectMod{
+		alias:    alias,
+		subquery: subquery,
+	}
+}
+
 // Where allows you to specify a where clause for your statement. If multiple
 // Where statements are used they are combined with 'and'
 func Where(clause string, args ...interface{}) QueryMod {
