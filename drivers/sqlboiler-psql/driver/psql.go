@@ -309,17 +309,17 @@ func (p *PostgresDriver) Columns(schema, tableName string, whitelist, blacklist 
 
 		c.is_nullable = 'YES' as is_nullable,
 		(
-				case when c.is_generated = 'ALWAYS' or c.identity_generation = 'ALWAYS' 
+				case when c.is_generated = 'ALWAYS' or c.identity_generation = 'ALWAYS'
 				then TRUE else FALSE end
 		) as is_generated,
 		(case
 			when (select
-		    case
-			    when column_name = 'is_identity' then (select c.is_identity = 'YES' as is_identity)
-		    else
-			    false
-		    end as is_identity from information_schema.columns
-		    WHERE table_schema='information_schema' and table_name='columns' and column_name='is_identity') IS NULL then 'NO' else is_identity end) = 'YES' as is_identity,
+				case
+					when column_name = 'is_identity' then (select c.is_identity = 'YES' as is_identity)
+				else
+					false
+				end as is_identity from information_schema.columns
+				WHERE table_schema='information_schema' and table_name='columns' and column_name='is_identity') IS NULL then 'NO' else is_identity end) = 'YES' as is_identity,
 		(select exists(
 			select 1
 			from information_schema.table_constraints tc
@@ -495,7 +495,7 @@ func (p *PostgresDriver) PrimaryKeyInfo(schema, tableName string) (*drivers.Prim
 func (p *PostgresDriver) ForeignKeyInfo(schema, tableName string) ([]drivers.ForeignKey, error) {
 	var fkeys []drivers.ForeignKey
 
-	whereConditions := []string{"pgn.nspname = $2", "pgc.relname = $1", "pgcon.contype = 'f'"}
+	whereConditions := []string{"pgn.nspname = $2", "pgc.relname = $1", "pgcon.contype = 'f'", "dstnsp.nspname = $2"}
 	if p.version >= 120000 {
 		whereConditions = append(whereConditions, "pgasrc.attgenerated = ''", "pgadst.attgenerated = ''")
 	}
@@ -511,6 +511,7 @@ func (p *PostgresDriver) ForeignKeyInfo(schema, tableName string) ([]drivers.For
 		inner join pg_class pgc on pgn.oid = pgc.relnamespace and pgc.relkind = 'r'
 		inner join pg_constraint pgcon on pgn.oid = pgcon.connamespace and pgc.oid = pgcon.conrelid
 		inner join pg_class dstlookupname on pgcon.confrelid = dstlookupname.oid
+		inner join pg_namespace dstnsp on dstnsp.oid = dstlookupname.relnamespace and dstlookupname.relkind = 'r'
 		inner join pg_attribute pgasrc on pgc.oid = pgasrc.attrelid and pgasrc.attnum = ANY(pgcon.conkey)
 		inner join pg_attribute pgadst on pgcon.confrelid = pgadst.attrelid and pgadst.attnum = ANY(pgcon.confkey)
 	where %s

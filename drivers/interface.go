@@ -114,7 +114,8 @@ func Tables(c Constructor, schema string, whitelist, blacklist []string) ([]Tabl
 	var tables []Table
 	for _, name := range names {
 		t := Table{
-			Name: name,
+			SchemaName: schema,
+			Name:       name,
 		}
 
 		if t.Columns, err = c.Columns(schema, name, whitelist, blacklist); err != nil {
