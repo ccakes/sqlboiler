@@ -89,6 +89,7 @@ type ViewConstructor interface {
 	ViewNames(schema string, whitelist, blacklist []string) ([]string, error)
 	ViewCapabilities(schema, viewName string) (ViewCapabilities, error)
 	ViewColumns(schema, tableName string, whitelist, blacklist []string) ([]Column, error)
+	ForeignKeyInfo(schema, tableName string) ([]ForeignKey, error)
 
 	// TranslateColumnType takes a Database column type and returns a go column type.
 	TranslateColumnType(Column) Column
@@ -207,6 +208,14 @@ func views(c ViewConstructor, schema string, whitelist, blacklist []string) ([]T
 				t.Columns[i] = c.TranslateColumnType(col)
 			}
 		}
+
+		if t.FKeys, err = c.ForeignKeyInfo(schema, name); err != nil {
+			return nil, errors.Wrapf(err, "unable to fetch table fkey info (%s)", name)
+		}
+
+		filterForeignKeys(&t, whitelist, blacklist)
+
+		setIsJoinTable(&t)
 
 		views = append(views, t)
 	}

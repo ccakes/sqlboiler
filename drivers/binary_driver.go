@@ -3,6 +3,7 @@ package drivers
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -78,6 +79,7 @@ func execute(executable, method string, input interface{}, output interface{}, e
 	}
 
 	if err = json.Unmarshal(outputBytes.Bytes(), &output); err != nil {
+		fmt.Printf("-- DEBUG --\n%s\n---------------\n", outputBytes.String())
 		return errors.Wrap(err, "failed to marshal json from binary")
 	}
 

@@ -284,95 +284,143 @@ func (p *PostgresDriver) ViewColumns(schema, tableName string, whitelist, blackl
 // converts the SQL types to Go types, for example: "varchar" to "string"
 func (p *PostgresDriver) Columns(schema, tableName string, whitelist, blacklist []string) ([]drivers.Column, error) {
 	var columns []drivers.Column
-	args := []interface{}{schema, tableName}
+	args := []interface{}{fmt.Sprintf(`"%s"."%s"`, schema, tableName)}
 
 	query := `
-	select
-		c.column_name,
-		ct.column_type,
-		(
-			case when c.character_maximum_length != 0
-			then
-			(
-				ct.column_type || '(' || c.character_maximum_length || ')'
+		WITH resolved_view AS (
+			WITH re AS (
+				SELECT
+					ev_class,
+					ev_action as view_definition
+				FROM pg_rewrite
+			),
+			target_lists AS (
+				SELECT
+					ev_class,
+					regexp_split_to_array(view_definition, 'targetList') AS x
+				FROM re
+			),
+			last_target_list_wo_tail AS (
+				SELECT
+					ev_class,
+					(regexp_split_to_array(x[array_upper(x, 1)], ':onConflict'))[1] AS x
+				FROM target_lists
+			),
+			target_entries AS (
+				SELECT
+					ev_class,
+					unnest((regexp_split_to_array(x, 'TARGETENTRY'))[2:]) AS entry
+				FROM last_target_list_wo_tail
 			)
-			else c.udt_name
-			end
-		) as column_full_type,
 
-		c.udt_name,
-		e.data_type as array_type,
-		c.domain_name,
-		c.column_default,
+			SELECT
+				ev_class,
+				substring(entry from ':resname (.*?) :') AS col_name,
+				substring(entry from ':resorigtbl (.*?) :')::oid AS resorigtbl,
+				substring(entry from ':resorigcol (.*?) :')::oid AS resorigcol
+			FROM target_entries
+		),
+		resolved_attribute AS (
+			SELECT
+				a.attrelid attorigrelid,
+				a.attnum attorignum,
+				a.attrelid,
+				a.attname,
+				a.attnum,
+				a.atttypid,
+				a.attlen,
+				a.atttypmod,
+				a.attnotnull,
+				a.attgenerated,
+				a.attidentity
+			FROM pg_attribute a
+			JOIN pg_class c ON c.oid = a.attrelid
+			WHERE
+				c.relkind = 'r'
 
-		COALESCE(col_description(('"'||c.table_schema||'"."'||c.table_name||'"')::regclass::oid, ordinal_position), '') as column_comment,
+			UNION
 
-		c.is_nullable = 'YES' as is_nullable,
-		(
-				case when c.is_generated = 'ALWAYS' or c.identity_generation = 'ALWAYS'
-				then TRUE else FALSE end
-		) as is_generated,
-		(case
-			when (select
-				case
-					when column_name = 'is_identity' then (select c.is_identity = 'YES' as is_identity)
-				else
-					false
-				end as is_identity from information_schema.columns
-				WHERE table_schema='information_schema' and table_name='columns' and column_name='is_identity') IS NULL then 'NO' else is_identity end) = 'YES' as is_identity,
-		(select exists(
-			select 1
-			from information_schema.table_constraints tc
-			inner join information_schema.constraint_column_usage as ccu on tc.constraint_name = ccu.constraint_name
-			where tc.table_schema = $1 and tc.constraint_type = 'UNIQUE' and ccu.constraint_schema = $1 and ccu.table_name = c.table_name and ccu.column_name = c.column_name and
-				(select count(*) from information_schema.constraint_column_usage where constraint_schema = $1 and constraint_name = tc.constraint_name) = 1
-		)) OR
-		(select exists(
-			select 1
-			from pg_indexes pgix
-			inner join pg_class pgc on pgix.indexname = pgc.relname and pgc.relkind = 'i' and pgc.relnatts = 1
-			inner join pg_index pgi on pgi.indexrelid = pgc.oid
-			inner join pg_attribute pga on pga.attrelid = pgi.indrelid and pga.attnum = ANY(pgi.indkey)
-			where
-				pgix.schemaname = $1 and pgix.tablename = c.table_name and pga.attname = c.column_name and pgi.indisunique = true
-		)) as is_unique
+			SELECT
+				oa.attrelid attorigrelid,
+				oa.attnum attorignum,
+				ra.attrelid,
+				oa.attname,
+				ra.attnum,
+				ra.atttypid,
+				ra.attlen,
+				ra.atttypmod,
+				ra.attnotnull,
+				ra.attgenerated,
+				ra.attidentity
+			FROM pg_attribute oa
+			JOIN pg_class c ON c.oid = oa.attrelid
+			JOIN resolved_view rv ON rv.ev_class = oa.attrelid AND rv.col_name = oa.attname
+			JOIN pg_attribute ra ON ra.attrelid = rv.resorigtbl AND ra.attnum = resorigcol
+			WHERE
+				c.relkind = 'v'
+		)
 
-		from information_schema.columns as c
-		inner join pg_namespace as pgn on pgn.nspname = c.udt_schema
-		left join pg_type pgt on c.data_type = 'USER-DEFINED' and pgn.oid = pgt.typnamespace and c.udt_name = pgt.typname
-		left join information_schema.element_types e
-			on ((c.table_catalog, c.table_schema, c.table_name, 'TABLE', c.dtd_identifier)
-			= (e.object_catalog, e.object_schema, e.object_name, e.object_type, e.collection_type_identifier)),
-		lateral (select
+		SELECT
+			a.attname column_name,
+			ct.column_type,
+			CASE
+				WHEN t.typlen = -1 AND a.atttypmod >= 0 THEN format('%s(%s)', ct.column_type, information_schema._pg_char_max_length(a.atttypid, a.atttypmod))
+				ELSE COALESCE(bt.typname, t.typname)
+			END column_full_type,
+			COALESCE(bt.typname, t.typname) udt_name,
+			format_type(at.oid, NULL::integer) array_type,
+			CASE
+				WHEN t.typtype = 'd' THEN t.typname
+				ELSE NULL::text
+			END domain_name,
+			CASE
+				WHEN a.attgenerated = '' THEN pg_get_expr(ad.adbin, ad.adrelid)
+				ELSE NULL::text
+			END column_default,
+			COALESCE(col_description(a.attrelid, a.attnum), '') column_comment,
+			(a.attnotnull = false) is_nullable,
+			(a.attgenerated != '') is_generated,
+			(a.attidentity != '') is_identity,
 			(
-				case when pgt.typtype = 'e'
-				then
-				(
-					select 'enum.' || c.udt_name || '(''' || string_agg(labels.label, ''',''') || ''')'
-					from (
-						select pg_enum.enumlabel as label
-						from pg_enum
-						where pg_enum.enumtypid =
-						(
-							select typelem
-							from pg_type
-							inner join pg_namespace ON pg_type.typnamespace = pg_namespace.oid
-							where pg_type.typtype = 'b' and pg_type.typname = ('_' || c.udt_name) and pg_namespace.nspname=$1
-							limit 1
-						)
-						order by pg_enum.enumsortorder
-					) as labels
+				SELECT EXISTS (
+					SELECT 1
+					FROM pg_index i
+					WHERE
+						i.indrelid = a.attrelid
+						AND a.attnum = ALL(i.indkey)
+						AND i.indisunique = true
 				)
-				else c.data_type
-				end
-			) as column_type
+			) is_unique
+		FROM resolved_attribute a
+		JOIN (pg_type t JOIN pg_namespace nt ON t.typnamespace = nt.oid) ON a.atttypid = t.oid
+		LEFT JOIN pg_attrdef ad ON a.attrelid = ad.adrelid AND a.attnum = ad.adnum
+		LEFT JOIN pg_type at ON at.oid = t.typelem
+		LEFT JOIN (pg_type bt JOIN pg_namespace nbt ON bt.typnamespace = nbt.oid) ON t.typtype = 'd'::"char" AND t.typbasetype = bt.oid,
+		LATERAL (
+			SELECT
+				CASE
+					WHEN t.typtype = 'd' THEN
+					CASE
+						WHEN bt.typelem != 0 AND bt.typlen = -1 THEN 'ARRAY'::text
+						WHEN nbt.nspname = 'pg_catalog' THEN format_type(t.typbasetype, NULL::integer)
+						ELSE 'USER-DEFINED'::text
+					END
+					ELSE
+					CASE
+						WHEN t.typelem != 0 AND t.typlen = -1 THEN 'ARRAY'::text
+						WHEN nt.nspname = 'pg_catalog' THEN format_type(a.atttypid, NULL::integer)
+						ELSE 'USER-DEFINED'::text
+					END
+				END column_type
 		) ct
-		where c.table_name = $2 and c.table_schema = $1`
+		WHERE
+			a.attorigrelid = $1::regclass
+			AND a.attnum > 0`
 
 	if len(whitelist) > 0 {
 		cols := drivers.ColumnsFromList(whitelist, tableName)
 		if len(cols) > 0 {
-			query += fmt.Sprintf(" and c.column_name in (%s)", strmangle.Placeholders(true, len(cols), 3, 1))
+			query += fmt.Sprintf(" and a.attname in (%s)", strmangle.Placeholders(true, len(cols), 3, 1))
 			for _, w := range cols {
 				args = append(args, w)
 			}
@@ -380,14 +428,14 @@ func (p *PostgresDriver) Columns(schema, tableName string, whitelist, blacklist 
 	} else if len(blacklist) > 0 {
 		cols := drivers.ColumnsFromList(blacklist, tableName)
 		if len(cols) > 0 {
-			query += fmt.Sprintf(" and c.column_name not in (%s)", strmangle.Placeholders(true, len(cols), 3, 1))
+			query += fmt.Sprintf(" and a.attname not in (%s)", strmangle.Placeholders(true, len(cols), 3, 1))
 			for _, w := range cols {
 				args = append(args, w)
 			}
 		}
 	}
 
-	query += ` order by c.ordinal_position;`
+	query += ` order by a.attorignum;`
 
 	rows, err := p.conn.Query(query, args...)
 
@@ -495,33 +543,109 @@ func (p *PostgresDriver) PrimaryKeyInfo(schema, tableName string) (*drivers.Prim
 func (p *PostgresDriver) ForeignKeyInfo(schema, tableName string) ([]drivers.ForeignKey, error) {
 	var fkeys []drivers.ForeignKey
 
-	whereConditions := []string{"pgn.nspname = $2", "pgc.relname = $1", "pgcon.contype = 'f'", "dstnsp.nspname = $2"}
+	whereConditions := []string{"oid = $1::regclass"}
 	if p.version >= 120000 {
-		whereConditions = append(whereConditions, "pgasrc.attgenerated = ''", "pgadst.attgenerated = ''")
+		whereConditions = append(whereConditions, "srcattgenerated = ''", "dstattgenerated = ''")
 	}
 
 	query := fmt.Sprintf(`
-	select
-		pgcon.conname,
-		pgc.relname as source_table,
-		pgasrc.attname as source_column,
-		dstlookupname.relname as dest_table,
-		pgadst.attname as dest_column
-	from pg_namespace pgn
-		inner join pg_class pgc on pgn.oid = pgc.relnamespace and pgc.relkind = 'r'
-		inner join pg_constraint pgcon on pgn.oid = pgcon.connamespace and pgc.oid = pgcon.conrelid
-		inner join pg_class dstlookupname on pgcon.confrelid = dstlookupname.oid
-		inner join pg_namespace dstnsp on dstnsp.oid = dstlookupname.relnamespace and dstlookupname.relkind = 'r'
-		inner join pg_attribute pgasrc on pgc.oid = pgasrc.attrelid and pgasrc.attnum = ANY(pgcon.conkey)
-		inner join pg_attribute pgadst on pgcon.confrelid = pgadst.attrelid and pgadst.attnum = ANY(pgcon.confkey)
-	where %s
-	order by pgcon.conname, source_table, source_column, dest_table, dest_column`,
+	WITH resolved_view AS (
+		WITH re AS (
+			SELECT
+				ev_class,
+				ev_action as view_definition
+			FROM pg_rewrite
+		),
+		target_lists AS (
+			SELECT
+				ev_class,
+				regexp_split_to_array(view_definition, 'targetList') AS x
+			FROM re
+		),
+		last_target_list_wo_tail AS (
+			SELECT
+				ev_class,
+				(regexp_split_to_array(x[array_upper(x, 1)], ':onConflict'))[1] AS x
+			FROM target_lists
+		),
+		target_entries AS (
+			SELECT
+				ev_class,
+				unnest((regexp_split_to_array(x, 'TARGETENTRY'))[2:]) AS entry
+			FROM last_target_list_wo_tail
+		)
+
+		SELECT
+			ev_class,
+			substring(entry from ':resname (.*?) :') AS col_name,
+			substring(entry from ':resorigtbl (.*?) :')::oid AS resorigtbl,
+			substring(entry from ':resorigcol (.*?) :')::oid AS resorigcol
+		FROM target_entries
+	),
+	rels AS (
+		SELECT
+			pgc.oid,
+			pgasrc.attgenerated srcattgenerated,
+			pgadst.attgenerated dstattgenerated,
+			pgcon.conname,
+			pgc.relname as source_table,
+			pgasrc.attname as source_column,
+			dstlookupname.relname as dest_table,
+			pgadst.attname as dest_column
+		FROM pg_namespace pgn
+		JOIN pg_class pgc on pgn.oid = pgc.relnamespace and pgc.relkind = 'r'
+		JOIN pg_constraint pgcon on pgn.oid = pgcon.connamespace and pgc.oid = pgcon.conrelid
+		JOIN pg_class dstlookupname on pgcon.confrelid = dstlookupname.oid
+		JOIN pg_namespace dstnsp on dstnsp.oid = dstlookupname.relnamespace and dstlookupname.relkind = 'r'
+		JOIN pg_attribute pgasrc on pgc.oid = pgasrc.attrelid and pgasrc.attnum = ANY(pgcon.conkey)
+		JOIN pg_attribute pgadst on pgcon.confrelid = pgadst.attrelid and pgadst.attnum = ANY(pgcon.confkey)
+		WHERE
+			pgcon.contype = 'f'
+			AND pgc.relnamespace = dstlookupname.relnamespace
+
+		UNION
+
+		SELECT
+			pgc.oid,
+			pgasrc.attgenerated srcattgenerated,
+			pgadst.attgenerated dstattgenerated,
+			pgcon.conname,
+			pgc.relname AS source_table,
+			pgasrc.attname AS source_column,
+			dstlookupname.relname AS dest_table,
+			pgadst.attname AS dest_column
+		FROM pg_class pgc
+		JOIN resolved_view rv ON rv.ev_class = pgc.oid AND pgc.relkind = 'v'
+		JOIN pg_class tc ON tc.oid = rv.resorigtbl AND tc.relkind = 'r'
+		JOIN pg_constraint pgcon ON pgcon.conrelid = rv.resorigtbl AND rv.resorigcol = ANY(pgcon.conkey)
+		JOIN pg_class dstlookupname on pgcon.confrelid = dstlookupname.oid
+		JOIN pg_attribute pgasrc ON pgasrc.attrelid = rv.resorigtbl AND pgasrc.attnum = rv.resorigcol
+		JOIN pg_attribute pgadst ON pgadst.attrelid = pgcon.confrelid AND pgadst.attnum = ANY(pgcon.confkey)
+		WHERE
+			pgcon.contype = 'f'
+			AND tc.relnamespace = dstlookupname.relnamespace
+	)
+
+	SELECT
+		conname,
+		source_table,
+		source_column,
+		dest_table,
+		dest_column
+	FROM rels
+	WHERE %s
+	ORDER BY
+		conname,
+		source_table,
+		source_column,
+		dest_table,
+		dest_column`,
 		strings.Join(whereConditions, " and "),
 	)
 
 	var rows *sql.Rows
 	var err error
-	if rows, err = p.conn.Query(query, tableName, schema); err != nil {
+	if rows, err = p.conn.Query(query, fmt.Sprintf(`"%s"."%s"`, schema, tableName)); err != nil {
 		return nil, err
 	}
 
