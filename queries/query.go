@@ -36,6 +36,8 @@ type Query struct {
 	selectCols       []string
 	selectSubqueries []subquerySelect
 	count            bool
+	min              string
+	max              string
 	from             []string
 	joins            []join
 	where            []where
@@ -261,6 +263,16 @@ func GetSelect(q *Query) []string {
 // SetDistinct on the query.
 func SetDistinct(q *Query, distinct string) {
 	q.distinct = distinct
+}
+
+// SetMin on the query.
+func SetMin(q *Query, column string) {
+	q.min = column
+}
+
+// SetMax on the query.
+func SetMax(q *Query, column string) {
+	q.max = column
 }
 
 // SetCount on the query.

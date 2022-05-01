@@ -77,6 +77,14 @@ func buildSelectQuery(q *Query) (*bytes.Buffer, []interface{}) {
 		}
 	}
 
+	if len(q.min) > 0 {
+		buf.WriteString(fmt.Sprintf(`MIN(%s) AS min, `, q.min))
+	}
+
+	if len(q.max) > 0 {
+		buf.WriteString(fmt.Sprintf(`MAX(%s) AS max, `, q.max))
+	}
+
 	if q.count {
 		buf.WriteString("COUNT(")
 	}
