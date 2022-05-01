@@ -249,23 +249,29 @@ func TestAppendOrderBy(t *testing.T) {
 	t.Parallel()
 
 	q := &Query{}
-	expect := "col1 desc, col2 asc"
-	AppendOrderBy(q, expect, 10)
-	AppendOrderBy(q, expect, 10)
+	expect := []orderBy{
+		{Table: "a", Column: "col1", Asc: false},
+		{Table: "b", Column: "col2", Asc: true},
+	}
 
-	if len(q.orderBy) != 2 && (q.orderBy[0].clause != expect || q.orderBy[1].clause != expect) {
+	AppendOrderBy(q, expect[0].Table, expect[0].Column, expect[0].Asc)
+	AppendOrderBy(q, expect[1].Table, expect[1].Column, expect[1].Asc)
+	// expect := "col1 desc, col2 asc"
+	// AppendOrderBy(q, expect, 10)
+	// AppendOrderBy(q, expect, 10)
+
+	// TODO: Add a proper comparer.
+	if len(q.orderBy) != 2 &&
+		(q.orderBy[0].Table != expect[0].Table || q.orderBy[0].Column != expect[0].Column || q.orderBy[1].Asc != expect[0].Asc ||
+			q.orderBy[1].Table != expect[1].Table && q.orderBy[1].Column != expect[1].Column && q.orderBy[1].Asc != expect[1].Asc) {
 		t.Errorf("Expected %s, got %s %s", expect, q.orderBy[0], q.orderBy[1])
 	}
 
-	if q.orderBy[0].args[0] != 10 || q.orderBy[1].args[0] != 10 {
-		t.Errorf("Expected %v, got %v %v", 10, q.orderBy[0].args[0], q.orderBy[1].args[0])
+	q.orderBy = []orderBy{
+		{"a", "col1", false},
 	}
-
-	q.orderBy = []argClause{
-		{"col1 desc, col2 asc", []interface{}{}},
-	}
-	if len(q.orderBy) != 1 && q.orderBy[0].clause != expect {
-		t.Errorf("Expected %s, got %s", expect, q.orderBy[0].clause)
+	if len(q.orderBy) != 1 && (q.orderBy[0].Table != expect[0].Table || q.orderBy[0].Column != expect[0].Column || q.orderBy[0].Asc != expect[0].Asc) {
+		t.Errorf("Expected %+v, got %+v", expect[0], q.orderBy[0])
 	}
 }
 

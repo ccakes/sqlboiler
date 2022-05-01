@@ -42,7 +42,7 @@ type Query struct {
 	joins            []join
 	where            []where
 	groupBy          []string
-	orderBy          []argClause
+	orderBy          []orderBy
 	having           []argClause
 	limit            *int
 	offset           int
@@ -111,6 +111,12 @@ type join struct {
 	kind   joinKind
 	clause string
 	args   []interface{}
+}
+
+type orderBy struct {
+	Table  string
+	Column string
+	Asc    bool
 }
 
 // Raw makes a raw query, usually for use with bind
@@ -421,8 +427,20 @@ func AppendGroupBy(q *Query, clause string) {
 }
 
 // AppendOrderBy on the query.
-func AppendOrderBy(q *Query, clause string, args ...interface{}) {
-	q.orderBy = append(q.orderBy, argClause{clause: clause, args: args})
+func AppendOrderBy(q *Query, table, column string, asc bool) {
+	q.orderBy = append(q.orderBy, orderBy{Table: table, Column: column, Asc: asc})
+}
+
+func ClearOrderBy(q *Query) {
+	q.orderBy = nil
+}
+
+func GetOrderBy(q *Query) []orderBy {
+	return q.orderBy
+}
+
+func SetOrderBy(q *Query, orderBy []orderBy) {
+	q.orderBy = orderBy
 }
 
 // AppendWith on the query.

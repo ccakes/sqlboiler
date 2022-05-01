@@ -260,6 +260,26 @@ func writeParameterizedModifiers(q *Query, buf *bytes.Buffer, args *[]interface{
 	strmangle.PutBuffer(modBuf)
 }
 
+func orderByClause(q *Query, buf *bytes.Buffer) {
+	if len(q.orderBy) == 0 {
+		return
+	}
+	buf.WriteString(" ORDER BY ")
+	for i, j := range q.orderBy {
+		buf.WriteString(fmt.Sprintf("%s.%s %s", j.Table, j.Column, getOrderByDirection(j.Asc)))
+		if i > 0 && i < len(q.orderBy)-1 {
+			buf.WriteString(", ")
+		}
+	}
+}
+
+func getOrderByDirection(asc bool) string {
+	if asc {
+		return "ASC"
+	}
+	return "DESC"
+}
+
 func writeModifiers(q *Query, buf *bytes.Buffer, args *[]interface{}) {
 	if len(q.groupBy) != 0 {
 		fmt.Fprintf(buf, " GROUP BY %s", strings.Join(q.groupBy, ", "))
@@ -270,7 +290,8 @@ func writeModifiers(q *Query, buf *bytes.Buffer, args *[]interface{}) {
 	}
 
 	if len(q.orderBy) != 0 {
-		writeParameterizedModifiers(q, buf, args, " ORDER BY ", ", ", q.orderBy)
+		orderByClause(q, buf)
+		//writeParameterizedModifiers(q, buf, args, " ORDER BY ", ", ", q.orderBy)
 	}
 
 	if !q.dialect.UseTopClause {
