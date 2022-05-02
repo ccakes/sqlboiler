@@ -488,12 +488,11 @@ type orderByQueryMod struct {
 	table  string
 	column string
 	asc    bool
-	args   []interface{}
 }
 
 // Apply implements QueryMod.Apply.
 func (qm orderByQueryMod) Apply(q *queries.Query) {
-	queries.AppendOrderBy(q, qm.table, qm.column, qm.asc)
+	queries.SetOrderBy(q, qm.table, qm.column, qm.asc)
 }
 
 // OrderBy allows you to specify a order by clause for your statement
@@ -502,7 +501,6 @@ func OrderBy(table, column string, asc bool, args ...interface{}) QueryMod {
 		table:  table,
 		column: column,
 		asc:    asc,
-		args:   args,
 	}
 }
 

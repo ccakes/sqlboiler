@@ -42,7 +42,7 @@ type Query struct {
 	joins            []join
 	where            []where
 	groupBy          []string
-	orderBy          []orderBy
+	orderBy          *orderBy
 	having           []argClause
 	limit            *int
 	offset           int
@@ -427,20 +427,16 @@ func AppendGroupBy(q *Query, clause string) {
 }
 
 // AppendOrderBy on the query.
-func AppendOrderBy(q *Query, table, column string, asc bool) {
-	q.orderBy = append(q.orderBy, orderBy{Table: table, Column: column, Asc: asc})
-}
-
 func ClearOrderBy(q *Query) {
 	q.orderBy = nil
 }
 
-func GetOrderBy(q *Query) []orderBy {
+func GetOrderBy(q *Query) *orderBy {
 	return q.orderBy
 }
 
-func SetOrderBy(q *Query, orderBy []orderBy) {
-	q.orderBy = orderBy
+func SetOrderBy(q *Query, table, column string, asc bool) {
+	q.orderBy = &orderBy{Table: table, Column: column, Asc: asc}
 }
 
 // AppendWith on the query.
