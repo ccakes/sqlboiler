@@ -33,13 +33,6 @@ func TestBuildQuery(t *testing.T) {
 	}{
 		{&Query{from: []string{"t"}}, nil},
 		{&Query{from: []string{"q"}, limit: newIntPtr(5), offset: 6}, nil},
-		// {&Query{
-		// 	from: []string{"q"},
-		// 	orderBy: []argClause{
-		// 		{"a ASC", []interface{}{}},
-		// 		{"b like ? DESC", []interface{}{"stuff"}}, // TODO: Tricky... do we need it?
-		// 	},
-		// }, []interface{}{"stuff"}},
 		{&Query{from: []string{"t"}, selectCols: []string{"count(*) as ab, thing as bd", `"stuff"`}}, nil},
 		{&Query{from: []string{"a", "b"}, selectCols: []string{"count(*) as ab, thing as bd", `"stuff"`}}, nil},
 		{&Query{

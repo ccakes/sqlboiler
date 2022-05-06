@@ -45,7 +45,7 @@ func buildQuery(q *Query, finalize bool) (string, []interface{}) {
 	case len(q.update) > 0:
 		buf, args = buildUpdateQuery(q)
 	default:
-		buf, args = buildSelectQuery(q, finalize)
+		buf, args = buildSelectQuery(q)
 	}
 
 	if finalize {
@@ -62,12 +62,12 @@ func buildQuery(q *Query, finalize bool) (string, []interface{}) {
 	return bufStr, args
 }
 
-func buildSelectQuery(q *Query, finalize bool) (*bytes.Buffer, []interface{}) {
+func buildSelectQuery(q *Query) (*bytes.Buffer, []interface{}) {
 	buf := strmangle.GetBuffer()
 	var args []interface{}
 
 	writeComment(q, buf)
-	writeCTEs(q, finalize, buf, &args)
+	writeCTEs(q, buf, &args)
 
 	buf.WriteString("SELECT ")
 
@@ -166,7 +166,7 @@ func buildDeleteQuery(q *Query) (*bytes.Buffer, []interface{}) {
 	buf := strmangle.GetBuffer()
 
 	writeComment(q, buf)
-	writeCTEs(q, true, buf, &args)
+	writeCTEs(q, buf, &args)
 
 	buf.WriteString("DELETE FROM ")
 	buf.WriteString(strings.Join(strmangle.IdentQuoteSlice(q.dialect.LQ, q.dialect.RQ, q.from), ", "))
@@ -187,7 +187,7 @@ func buildUpdateQuery(q *Query) (*bytes.Buffer, []interface{}) {
 	var args []interface{}
 
 	writeComment(q, buf)
-	writeCTEs(q, true, buf, &args)
+	writeCTEs(q, buf, &args)
 
 	buf.WriteString("UPDATE ")
 	buf.WriteString(strings.Join(strmangle.IdentQuoteSlice(q.dialect.LQ, q.dialect.RQ, q.from), ", "))
@@ -658,7 +658,7 @@ func writeComment(q *Query, buf *bytes.Buffer) {
 	}
 }
 
-func writeCTEs(q *Query, finalize bool, buf *bytes.Buffer, args *[]interface{}) {
+func writeCTEs(q *Query, buf *bytes.Buffer, args *[]interface{}) {
 	if len(q.withs) == 0 {
 		return
 	}
@@ -680,7 +680,7 @@ func writeCTEs(q *Query, finalize bool, buf *bytes.Buffer, args *[]interface{}) 
 	}
 	withBuf.WriteByte(' ')
 	var resp string
-	if q.dialect.UseIndexPlaceholders && finalize {
+	if q.dialect.UseIndexPlaceholders {
 		resp, _ = convertQuestionMarks(withBuf.String(), argsLen+1)
 	} else {
 		resp = withBuf.String()
