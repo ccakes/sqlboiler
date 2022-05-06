@@ -245,6 +245,7 @@ func TestAppendGroupBy(t *testing.T) {
 	}
 }
 
+// TODO: Add tests for GetOrderBy, SetOrderBy and ClearOrderBy.
 // func TestAppendOrderBy(t *testing.T) {
 // 	t.Parallel()
 
