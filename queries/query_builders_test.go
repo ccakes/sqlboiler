@@ -33,13 +33,6 @@ func TestBuildQuery(t *testing.T) {
 	}{
 		{&Query{from: []string{"t"}}, nil},
 		{&Query{from: []string{"q"}, limit: newIntPtr(5), offset: 6}, nil},
-		{&Query{
-			from: []string{"q"},
-			orderBy: []argClause{
-				{"a ASC", []interface{}{}},
-				{"b like ? DESC", []interface{}{"stuff"}},
-			},
-		}, []interface{}{"stuff"}},
 		{&Query{from: []string{"t"}, selectCols: []string{"count(*) as ab, thing as bd", `"stuff"`}}, nil},
 		{&Query{from: []string{"a", "b"}, selectCols: []string{"count(*) as ab, thing as bd", `"stuff"`}}, nil},
 		{&Query{
@@ -683,7 +676,7 @@ func TestWriteAsStatements(t *testing.T) {
 		`COUNT(a)`,
 	}
 
-	gots := writeAsStatements(&query)
+	gots := writeAsStatements(&query, nil)
 
 	for i, got := range gots {
 		if expect[i] != got {

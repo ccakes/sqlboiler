@@ -252,6 +252,21 @@ func writeParameterizedModifiers(q *Query, buf *bytes.Buffer, args *[]interface{
 	strmangle.PutBuffer(modBuf)
 }
 
+func orderByClause(q *Query, buf *bytes.Buffer) {
+	if q.orderBy == nil {
+		return
+	}
+
+	buf.WriteString(fmt.Sprintf(" ORDER BY %s.%s %s", q.orderBy.Table, q.orderBy.Column, getOrderByDirection(q.orderBy.Asc)))
+}
+
+func getOrderByDirection(asc bool) string {
+	if asc {
+		return "ASC"
+	}
+	return "DESC"
+}
+
 func writeModifiers(q *Query, buf *bytes.Buffer, args *[]interface{}) {
 	if len(q.groupBy) != 0 {
 		fmt.Fprintf(buf, " GROUP BY %s", strings.Join(q.groupBy, ", "))
@@ -261,8 +276,8 @@ func writeModifiers(q *Query, buf *bytes.Buffer, args *[]interface{}) {
 		writeParameterizedModifiers(q, buf, args, " HAVING ", " AND ", q.having)
 	}
 
-	if len(q.orderBy) != 0 {
-		writeParameterizedModifiers(q, buf, args, " ORDER BY ", ", ", q.orderBy)
+	if q.orderBy != nil {
+		orderByClause(q, buf)
 	}
 
 	if !q.dialect.UseTopClause {
@@ -285,7 +300,7 @@ func writeModifiers(q *Query, buf *bytes.Buffer, args *[]interface{}) {
 			// As mentioned, the OFFSET-FETCH filter requires an ORDER BY clause. If you want to use arbitrary order,
 			// like TOP without an ORDER BY clause, you can use the trick with ORDER BY (SELECT NULL)
 			// ...
-			if len(q.orderBy) == 0 {
+			if q.orderBy == nil {
 				buf.WriteString(" ORDER BY (SELECT NULL)")
 			}
 
